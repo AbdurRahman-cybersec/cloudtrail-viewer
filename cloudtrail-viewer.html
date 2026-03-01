@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CloudTrail Viewer</title>
+<meta name="description" content="AWS CloudTrail log viewer — upload, sort, filter, and inspect trail events.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ─────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e17;--surface:rgba(255,255,255,.04);--surface-hover:rgba(255,255,255,.07);
+  --border:rgba(255,255,255,.08);--border-active:rgba(255,255,255,.18);
+  --text:#e2e8f0;--text-dim:#7b8ba3;--text-bright:#f8fafc;
+  --accent:#06d6a0;--accent2:#8b5cf6;--accent3:#38bdf8;
+  --danger:#ef4444;--warning:#f59e0b;
+  --glass:rgba(15,23,42,.72);--glass-border:rgba(255,255,255,.06);
+  --radius:12px;--radius-sm:8px;--radius-xs:4px;
+  --shadow:0 4px 24px rgba(0,0,0,.4);
+  --font:'Inter',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --transition:all .2s cubic-bezier(.4,0,.2,1);
+}
+html{font-size:14px;scroll-behavior:smooth}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:
+  radial-gradient(ellipse 600px 400px at 10% 20%,rgba(6,214,160,.06),transparent),
+  radial-gradient(ellipse 500px 500px at 85% 70%,rgba(139,92,246,.06),transparent),
+  radial-gradient(ellipse 400px 300px at 50% 50%,rgba(56,189,248,.04),transparent);
+  pointer-events:none;z-index:0}
+
+/* ── Scrollbar ────────────────────────────────── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
+
+/* ── Layout ───────────────────────────────────── */
+.app{position:relative;z-index:1;max-width:1600px;margin:0 auto;padding:20px 24px 40px}
+header{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+header .logo{display:flex;align-items:center;gap:10px}
+header .logo svg{width:32px;height:32px}
+header h1{font-size:1.4rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header .badge{font-size:.7rem;font-weight:600;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;padding:2px 8px;border-radius:20px;letter-spacing:.04em;text-transform:uppercase}
+
+/* ── Drop Zone ────────────────────────────────── */
+.dropzone{border:2px dashed var(--border);background:var(--surface);border-radius:var(--radius);padding:48px 24px;text-align:center;cursor:pointer;transition:var(--transition);position:relative;overflow:hidden}
+.dropzone::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(6,214,160,.04),rgba(139,92,246,.04));opacity:0;transition:opacity .3s}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--accent);background:rgba(6,214,160,.04)}
+.dropzone:hover::before,.dropzone.drag-over::before{opacity:1}
+.dropzone .icon{font-size:2.8rem;margin-bottom:12px;display:block}
+.dropzone .label{font-size:1rem;font-weight:500;color:var(--text-bright)}
+.dropzone .sublabel{font-size:.8rem;color:var(--text-dim);margin-top:6px}
+.dropzone input{display:none}
+
+/* ── Stats Bar ────────────────────────────────── */
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.stat-card{background:var(--glass);backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:12px 18px;min-width:140px;flex:1;transition:var(--transition)}
+.stat-card:hover{border-color:var(--border-active);transform:translateY(-1px)}
+.stat-card .stat-value{font-size:1.5rem;font-weight:700;color:var(--text-bright)}
+.stat-card .stat-label{font-size:.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+.stat-card:nth-child(1) .stat-value{color:var(--accent)}
+.stat-card:nth-child(2) .stat-value{color:var(--accent3)}
+.stat-card:nth-child(3) .stat-value{color:var(--accent2)}
+.stat-card:nth-child(4) .stat-value{color:var(--warning)}
+
+/* ── Toolbar ──────────────────────────────────── */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.search-box{position:relative;flex:1;min-width:200px}
+.search-box input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 14px 9px 36px;color:var(--text-bright);font-family:var(--font);font-size:.85rem;transition:var(--transition);outline:none}
+.search-box input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(6,214,160,.12)}
+.search-box input::placeholder{color:var(--text-dim)}
+.search-box .icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-dim);font-size:.9rem;pointer-events:none}
+.btn{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 14px;color:var(--text);font-family:var(--font);font-size:.8rem;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{background:var(--surface-hover);border-color:var(--border-active)}
+.btn.active{background:rgba(6,214,160,.1);border-color:var(--accent);color:var(--accent)}
+.btn-accent{background:linear-gradient(135deg,rgba(6,214,160,.15),rgba(139,92,246,.15));border-color:rgba(6,214,160,.3)}
+.btn-danger{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.2);color:var(--danger)}
+.btn-danger:hover{background:rgba(239,68,68,.15)}
+
+/* ── Column Toggles Panel ─────────────────────── */
+.col-panel{display:none;background:var(--glass);backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:14px;margin-bottom:14px;gap:8px 16px;flex-wrap:wrap}
+.col-panel.open{display:flex}
+.col-panel label{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--text-dim);cursor:pointer;transition:color .15s}
+.col-panel label:hover{color:var(--text-bright)}
+.col-panel input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+
+/* ── Active Filters ───────────────────────────── */
+.active-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.filter-tag{display:inline-flex;align-items:center;gap:6px;background:rgba(6,214,160,.1);border:1px solid rgba(6,214,160,.2);border-radius:20px;padding:4px 10px 4px 12px;font-size:.72rem;color:var(--accent);cursor:default;animation:tagIn .25s ease}
+.filter-tag .remove{cursor:pointer;opacity:.6;transition:opacity .15s;font-size:.9rem;line-height:1}
+.filter-tag .remove:hover{opacity:1}
+@keyframes tagIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+
+/* ── Table ────────────────────────────────────── */
+.table-wrap{background:var(--glass);backdrop-filter:blur(16px);border:1px solid var(--glass-border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.table-scroll{overflow:auto;max-height:calc(100vh - 340px)}
+table{width:100%;border-collapse:collapse;table-layout:auto}
+thead{position:sticky;top:0;z-index:5}
+thead th{background:rgba(15,23,42,.95);backdrop-filter:blur(8px);padding:10px 14px;text-align:left;font-weight:600;font-size:.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap;user-select:none;cursor:pointer;transition:color .15s}
+thead th:hover{color:var(--text-bright)}
+thead th .th-inner{display:flex;align-items:center;gap:6px}
+thead th .sort-icon{font-size:.65rem;opacity:.4;transition:opacity .15s}
+thead th.sorted .sort-icon{opacity:1;color:var(--accent)}
+thead th .filter-btn{font-size:.72rem;opacity:.35;cursor:pointer;transition:opacity .15s;padding:2px}
+thead th .filter-btn:hover{opacity:1}
+thead th .filter-btn.has-filter{opacity:1;color:var(--accent)}
+tbody tr{border-bottom:1px solid var(--border);transition:background .12s;cursor:pointer}
+tbody tr:hover{background:var(--surface-hover)}
+tbody tr:last-child{border-bottom:none}
+tbody td{padding:9px 14px;font-size:.82rem;color:var(--text);white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.cell-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:500}
+.tag-read{background:rgba(6,214,160,.1);color:var(--accent)}
+.tag-write{background:rgba(239,68,68,.1);color:var(--danger)}
+.tag-root{background:rgba(245,158,11,.08);color:var(--warning)}
+.tag-iam{background:rgba(139,92,246,.1);color:var(--accent2)}
+.tag-assumed{background:rgba(56,189,248,.1);color:var(--accent3)}
+.tag-error{background:rgba(239,68,68,.1);color:var(--danger);font-weight:600}
+
+/* ── Pagination ───────────────────────────────── */
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border);font-size:.78rem;color:var(--text-dim)}
+.pagination .page-btns{display:flex;gap:4px}
+.pagination .page-btn{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xs);padding:5px 10px;color:var(--text-dim);cursor:pointer;font-family:var(--font);font-size:.75rem;transition:var(--transition)}
+.pagination .page-btn:hover{background:var(--surface-hover);color:var(--text-bright)}
+.pagination .page-btn.active{background:rgba(6,214,160,.12);border-color:var(--accent);color:var(--accent)}
+.pagination .page-btn:disabled{opacity:.3;cursor:default}
+
+/* ── Filter Dropdown ──────────────────────────── */
+.filter-dropdown{position:fixed;z-index:100;background:rgba(15,23,42,.96);backdrop-filter:blur(20px);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:10px;min-width:220px;max-width:320px;max-height:340px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:dropIn .2s ease}
+@keyframes dropIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.filter-dropdown .fd-search{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-bright);font-family:var(--font);font-size:.78rem;outline:none;margin-bottom:8px;transition:border-color .15s}
+.filter-dropdown .fd-search:focus{border-color:var(--accent)}
+.filter-dropdown .fd-list{overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px}
+.filter-dropdown .fd-item{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:var(--radius-xs);cursor:pointer;font-size:.78rem;color:var(--text);transition:background .12s}
+.filter-dropdown .fd-item:hover{background:var(--surface-hover)}
+.filter-dropdown .fd-item input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.filter-dropdown .fd-item .count{margin-left:auto;color:var(--text-dim);font-size:.68rem}
+.filter-dropdown .fd-actions{display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.filter-dropdown .fd-actions .btn{flex:1;justify-content:center;padding:6px 10px;font-size:.72rem}
+
+/* ── Detail Modal ─────────────────────────────── */
+.modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
+.modal-overlay.open{opacity:1;pointer-events:auto}
+.modal{background:rgba(15,23,42,.95);backdrop-filter:blur(20px);border:1px solid var(--glass-border);border-radius:var(--radius);width:90%;max-width:800px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 16px 64px rgba(0,0,0,.5);transform:scale(.95);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.modal-overlay.open .modal{transform:scale(1)}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+.modal-header h2{font-size:1rem;font-weight:600;color:var(--text-bright)}
+.modal-close{background:none;border:none;color:var(--text-dim);font-size:1.3rem;cursor:pointer;padding:4px;transition:color .15s}
+.modal-close:hover{color:var(--text-bright)}
+.modal-body{overflow-y:auto;padding:20px;flex:1}
+.modal-body pre{font-family:var(--mono);font-size:.78rem;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
+.modal-body .key{color:var(--accent3)}
+.modal-body .string{color:var(--accent)}
+.modal-body .number{color:var(--accent2)}
+.modal-body .bool{color:var(--warning)}
+.modal-body .null{color:var(--text-dim)}
+
+/* ── Empty State ──────────────────────────────── */
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-dim)}
+.empty-state .icon{font-size:3rem;margin-bottom:12px}
+.empty-state p{font-size:.9rem}
+
+/* ── Hidden ───────────────────────────────────── */
+.hidden{display:none!important}
+
+/* ── Animations ───────────────────────────────── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .35s ease}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <header class="fade-up">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" fill="none"><defs><linearGradient id="g" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#06d6a0"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><path d="M16 3L28 9v14l-12 6L4 23V9l12-6z" stroke="url(#g)" stroke-width="2" fill="none"/><path d="M16 3v26M4 9l12 7 12-7" stroke="url(#g)" stroke-width="1.5" opacity=".5"/><circle cx="16" cy="16" r="3" fill="url(#g)"/></svg>
+      <h1>CloudTrail Viewer</h1>
+    </div>
+    <span class="badge">v1.0</span>
+  </header>
+
+  <!-- Drop Zone -->
+  <div class="dropzone fade-up" id="dropzone">
+    <span class="icon">☁️</span>
+    <div class="label">Drop CloudTrail JSON files here</div>
+    <div class="sublabel">or click to browse • accepts <code>.json</code> files</div>
+    <input type="file" id="fileInput" accept=".json" multiple>
+  </div>
+
+  <!-- Main Content (hidden until file loaded) -->
+  <div id="mainContent" class="hidden">
+    <!-- Stats -->
+    <div class="stats fade-up" id="statsBar"></div>
+
+    <!-- Toolbar -->
+    <div class="toolbar fade-up">
+      <div class="search-box">
+        <span class="icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search across all fields…">
+      </div>
+      <button class="btn" id="btnColumns" title="Toggle columns">⚙️ Columns</button>
+      <button class="btn btn-danger" id="btnClear">✕ Clear</button>
+    </div>
+
+    <!-- Column Toggles -->
+    <div class="col-panel" id="colPanel"></div>
+
+    <!-- Active Filters -->
+    <div class="active-filters" id="activeFilters"></div>
+
+    <!-- Table -->
+    <div class="table-wrap fade-up">
+      <div class="table-scroll" id="tableScroll">
+        <table>
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </div>
+
+  <!-- Empty state shown in table when no results -->
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Event Detail</h2>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <pre id="modalBody"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Filter Dropdown (positioned dynamically) -->
+<div class="filter-dropdown hidden" id="filterDropdown"></div>
+
+<script>
+/* ──────────────────────────────────────────────────
+   CloudTrail Viewer — Core Logic
+   ────────────────────────────────────────────────── */
+(() => {
+  'use strict';
+
+  // ── Column Definitions ──────────────────────────
+  const COLUMNS = [
+    { key:'eventTime',     label:'Event Time',     extract: r => r.eventTime || '' },
+    { key:'eventName',     label:'Event Name',     extract: r => r.eventName || '' },
+    { key:'eventSource',   label:'Event Source',   extract: r => r.eventSource || '' },
+    { key:'awsRegion',     label:'Region',         extract: r => r.awsRegion || '' },
+    { key:'sourceIPAddress',label:'Source IP',      extract: r => r.sourceIPAddress || '' },
+    { key:'userAgent',     label:'User Agent',     extract: r => r.userAgent || '' },
+    { key:'identityType',  label:'Identity Type',  extract: r => r.userIdentity?.type || '' },
+    { key:'userName',      label:'User / Role',    extract: r => r.userIdentity?.userName || r.userIdentity?.arn?.split('/').pop() || r.userIdentity?.arn || '' },
+    { key:'accountId',     label:'Account ID',     extract: r => r.userIdentity?.accountId || '' },
+    { key:'readOnly',      label:'Read Only',      extract: r => r.readOnly != null ? String(r.readOnly) : '' },
+    { key:'eventCategory', label:'Category',       extract: r => r.eventCategory || '' },
+    { key:'eventType',     label:'Event Type',     extract: r => r.eventType || '' },
+    { key:'errorCode',     label:'Error Code',     extract: r => r.errorCode || '' },
+    { key:'errorMessage',  label:'Error Message',  extract: r => r.errorMessage || '' },
+    { key:'accessKeyId',   label:'Access Key',     extract: r => r.userIdentity?.accessKeyId || '' },
+    { key:'mfaAuthenticated',label:'MFA',           extract: r => r.userIdentity?.sessionContext?.attributes?.mfaAuthenticated || '' },
+    { key:'invokedBy',     label:'Invoked By',     extract: r => r.userIdentity?.invokedBy || '' },
+  ];
+
+  const DEFAULT_VISIBLE = new Set([
+    'eventTime','eventName','eventSource','awsRegion','sourceIPAddress',
+    'userAgent','identityType','userName','readOnly','eventCategory','errorCode'
+  ]);
+
+  const PAGE_SIZE = 50;
+
+  // ── State ───────────────────────────────────────
+  let allRecords = [];      // raw records
+  let rows = [];            // processed {raw, cells:{key:value}}
+  let filteredRows = [];
+  let visibleCols = new Set(DEFAULT_VISIBLE);
+  let sortCol = 'eventTime';
+  let sortAsc = false;
+  let filters = {};         // key -> Set of selected values
+  let searchTerm = '';
+  let currentPage = 1;
+  let openFilterCol = null;
+
+  // ── DOM Refs ────────────────────────────────────
+  const $dropzone     = document.getElementById('dropzone');
+  const $fileInput    = document.getElementById('fileInput');
+  const $main         = document.getElementById('mainContent');
+  const $statsBar     = document.getElementById('statsBar');
+  const $searchInput  = document.getElementById('searchInput');
+  const $btnColumns   = document.getElementById('btnColumns');
+  const $btnClear     = document.getElementById('btnClear');
+  const $colPanel     = document.getElementById('colPanel');
+  const $activeFilters= document.getElementById('activeFilters');
+  const $thead        = document.getElementById('thead');
+  const $tbody        = document.getElementById('tbody');
+  const $pagination   = document.getElementById('pagination');
+  const $modalOverlay = document.getElementById('modalOverlay');
+  const $modalTitle   = document.getElementById('modalTitle');
+  const $modalBody    = document.getElementById('modalBody');
+  const $modalClose   = document.getElementById('modalClose');
+  const $filterDD     = document.getElementById('filterDropdown');
+
+  // ── File Loading ────────────────────────────────
+  $dropzone.addEventListener('click', () => $fileInput.click());
+  $dropzone.addEventListener('dragover', e => { e.preventDefault(); $dropzone.classList.add('drag-over'); });
+  $dropzone.addEventListener('dragleave', () => $dropzone.classList.remove('drag-over'));
+  $dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    $dropzone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  });
+  $fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+  function handleFiles(fileList) {
+    const promises = [];
+    for (const f of fileList) {
+      if (!f.name.endsWith('.json')) continue;
+      promises.push(f.text().then(txt => {
+        try {
+          const data = JSON.parse(txt);
+          const recs = data.Records || (Array.isArray(data) ? data : [data]);
+          return recs;
+        } catch { return []; }
+      }));
+    }
+    Promise.all(promises).then(arrays => {
+      allRecords = arrays.flat();
+      if (!allRecords.length) return;
+      processRecords();
+      $dropzone.classList.add('hidden');
+      $main.classList.remove('hidden');
+      renderAll();
+    });
+  }
+
+  function processRecords() {
+    rows = allRecords.map(r => {
+      const cells = {};
+      COLUMNS.forEach(c => cells[c.key] = c.extract(r));
+      return { raw: r, cells };
+    });
+  }
+
+  // ── Filtering & Sorting ─────────────────────────
+  function applyFiltersAndSort() {
+    const term = searchTerm.toLowerCase();
+    filteredRows = rows.filter(row => {
+      // column filters
+      for (const [key, vals] of Object.entries(filters)) {
+        if (vals.size && !vals.has(row.cells[key])) return false;
+      }
+      // search
+      if (term) {
+        const haystack = Object.values(row.cells).join(' ').toLowerCase();
+        if (!haystack.includes(term)) return false;
+      }
+      return true;
+    });
+    // sort
+    filteredRows.sort((a, b) => {
+      let va = a.cells[sortCol] || '', vb = b.cells[sortCol] || '';
+      if (sortCol === 'eventTime') { va = new Date(va); vb = new Date(vb); return sortAsc ? va - vb : vb - va; }
+      if (sortCol === 'readOnly') { va = va === 'true' ? 1 : 0; vb = vb === 'true' ? 1 : 0; return sortAsc ? va - vb : vb - va; }
+      const cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
+      return sortAsc ? cmp : -cmp;
+    });
+    // reset page
+    currentPage = 1;
+  }
+
+  // ── Render All ──────────────────────────────────
+  function renderAll() {
+    applyFiltersAndSort();
+    renderStats();
+    renderColumnPanel();
+    renderActiveFilters();
+    renderTable();
+    renderPagination();
+  }
+
+  // ── Stats ───────────────────────────────────────
+  function renderStats() {
+    const total = filteredRows.length;
+    const uniqueEvents = new Set(filteredRows.map(r => r.cells.eventName)).size;
+    const uniqueIPs = new Set(filteredRows.map(r => r.cells.sourceIPAddress)).size;
+    const times = filteredRows.map(r => new Date(r.cells.eventTime)).filter(d => !isNaN(d));
+    let timeRange = '—';
+    if (times.length >= 2) {
+      times.sort((a,b) => a - b);
+      timeRange = shortTime(times[0]) + ' → ' + shortTime(times[times.length - 1]);
+    } else if (times.length === 1) {
+      timeRange = shortTime(times[0]);
+    }
+    $statsBar.innerHTML = `
+      <div class="stat-card"><div class="stat-value">${total}</div><div class="stat-label">Total Events</div></div>
+      <div class="stat-card"><div class="stat-value">${uniqueEvents}</div><div class="stat-label">Unique Events</div></div>
+      <div class="stat-card"><div class="stat-value">${uniqueIPs}</div><div class="stat-label">Unique IPs</div></div>
+      <div class="stat-card"><div class="stat-value" style="font-size:1rem">${timeRange}</div><div class="stat-label">Time Range</div></div>
+    `;
+  }
+
+  function shortTime(d) {
+    return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+  }
+
+  // ── Column Panel ────────────────────────────────
+  function renderColumnPanel() {
+    $colPanel.innerHTML = COLUMNS.map(c => `
+      <label><input type="checkbox" data-col="${c.key}" ${visibleCols.has(c.key)?'checked':''}> ${c.label}</label>
+    `).join('');
+    $colPanel.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', () => {
+        if (inp.checked) visibleCols.add(inp.dataset.col);
+        else visibleCols.delete(inp.dataset.col);
+        renderTable();
+        renderPagination();
+      });
+    });
+  }
+
+  // ── Active Filters ──────────────────────────────
+  function renderActiveFilters() {
+    const tags = [];
+    for (const [key, vals] of Object.entries(filters)) {
+      if (!vals.size) continue;
+      const col = COLUMNS.find(c => c.key === key);
+      vals.forEach(v => {
+        tags.push(`<span class="filter-tag" data-key="${key}" data-val="${esc(v)}">${col.label}: <strong>${esc(v || '(empty)')}</strong> <span class="remove" title="Remove">✕</span></span>`);
+      });
+    }
+    $activeFilters.innerHTML = tags.join('');
+    $activeFilters.querySelectorAll('.remove').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const tag = e.target.closest('.filter-tag');
+        const key = tag.dataset.key, val = tag.dataset.val;
+        filters[key]?.delete(val);
+        if (!filters[key]?.size) delete filters[key];
+        renderAll();
+      });
+    });
+  }
+
+  // ── Table ───────────────────────────────────────
+  function renderTable() {
+    const cols = COLUMNS.filter(c => visibleCols.has(c.key));
+
+    // thead
+    $thead.innerHTML = '<tr>' + cols.map(c => {
+      const sorted = sortCol === c.key;
+      const arrow = sorted ? (sortAsc ? '▲' : '▼') : '▲';
+      const hasFilter = filters[c.key]?.size > 0;
+      return `<th class="${sorted ? 'sorted' : ''}" data-col="${c.key}">
+        <div class="th-inner">
+          <span>${c.label}</span>
+          <span class="sort-icon">${arrow}</span>
+          <span class="filter-btn ${hasFilter ? 'has-filter' : ''}" data-filter="${c.key}" title="Filter">⧩</span>
+        </div>
+      </th>`;
+    }).join('') + '</tr>';
+
+    // sort handlers
+    $thead.querySelectorAll('th').forEach(th => {
+      th.addEventListener('click', e => {
+        if (e.target.classList.contains('filter-btn') || e.target.closest('.filter-btn')) return;
+        const col = th.dataset.col;
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        renderAll();
+      });
+    });
+
+    // filter button handlers
+    $thead.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        toggleFilterDropdown(btn.dataset.filter, btn);
+      });
+    });
+
+    // tbody
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageRows = filteredRows.slice(start, start + PAGE_SIZE);
+
+    if (!pageRows.length) {
+      $tbody.innerHTML = `<tr><td colspan="${cols.length}"><div class="empty-state"><div class="icon">📭</div><p>No matching events found</p></div></td></tr>`;
+      return;
+    }
+
+    $tbody.innerHTML = pageRows.map((row, i) => {
+      return '<tr data-idx="' + (start + i) + '">' + cols.map(c => {
+        const v = row.cells[c.key];
+        return `<td title="${esc(v)}">${formatCell(c.key, v, row)}</td>`;
+      }).join('') + '</tr>';
+    }).join('');
+
+    // row click -> detail modal
+    $tbody.querySelectorAll('tr').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const idx = parseInt(tr.dataset.idx);
+        showModal(filteredRows[idx]);
+      });
+    });
+  }
+
+  function formatCell(key, val, row) {
+    if (key === 'readOnly') {
+      if (val === 'true') return '<span class="cell-tag tag-read">Read</span>';
+      if (val === 'false') return '<span class="cell-tag tag-write">Write</span>';
+      return val;
+    }
+    if (key === 'identityType') {
+      if (val === 'Root') return '<span class="cell-tag tag-root">Root</span>';
+      if (val === 'IAMUser') return '<span class="cell-tag tag-iam">IAMUser</span>';
+      if (val === 'AssumedRole') return '<span class="cell-tag tag-assumed">AssumedRole</span>';
+      return esc(val);
+    }
+    if (key === 'errorCode' && val) return '<span class="cell-tag tag-error">' + esc(val) + '</span>';
+    if (key === 'eventTime' && val) {
+      try { return new Date(val).toISOString().replace('T', ' ').replace(/\.\d+Z/, ' UTC'); } catch { return esc(val); }
+    }
+    return esc(val);
+  }
+
+  // ── Pagination ──────────────────────────────────
+  function renderPagination() {
+    const total = filteredRows.length;
+    const pages = Math.ceil(total / PAGE_SIZE) || 1;
+    const start = (currentPage - 1) * PAGE_SIZE + 1;
+    const end = Math.min(currentPage * PAGE_SIZE, total);
+    const info = total ? `Showing ${start}–${end} of ${total}` : 'No results';
+
+    let btns = '';
+    btns += `<button class="page-btn" ${currentPage <= 1 ? 'disabled' : ''} data-page="${currentPage-1}">‹ Prev</button>`;
+    const maxBtns = 7;
+    let from = Math.max(1, currentPage - 3);
+    let to = Math.min(pages, from + maxBtns - 1);
+    from = Math.max(1, to - maxBtns + 1);
+    for (let p = from; p <= to; p++) {
+      btns += `<button class="page-btn ${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+    }
+    btns += `<button class="page-btn" ${currentPage >= pages ? 'disabled' : ''} data-page="${currentPage+1}">Next ›</button>`;
+
+    $pagination.innerHTML = `<span>${info}</span><div class="page-btns">${btns}</div>`;
+    $pagination.querySelectorAll('.page-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        currentPage = parseInt(btn.dataset.page);
+        renderTable();
+        renderPagination();
+        document.getElementById('tableScroll').scrollTop = 0;
+      });
+    });
+  }
+
+  // ── Filter Dropdown ─────────────────────────────
+  function toggleFilterDropdown(colKey, anchorEl) {
+    if (openFilterCol === colKey) { closeFilterDropdown(); return; }
+    openFilterCol = colKey;
+    const col = COLUMNS.find(c => c.key === colKey);
+    // get unique values + counts
+    const counts = {};
+    rows.forEach(r => {
+      const v = r.cells[colKey];
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const selected = new Set(filters[colKey] || []);
+
+    function renderList(filterText = '') {
+      const ft = filterText.toLowerCase();
+      return entries
+        .filter(([v]) => v.toLowerCase().includes(ft))
+        .map(([v, cnt]) => `
+          <label class="fd-item"><input type="checkbox" value="${esc(v)}" ${selected.has(v)?'checked':''}> <span>${esc(v || '(empty)')}</span> <span class="count">${cnt}</span></label>
+        `).join('');
+    }
+
+    $filterDD.innerHTML = `
+      <input class="fd-search" placeholder="Search ${col.label}…" id="fdSearch">
+      <div class="fd-list" id="fdList">${renderList()}</div>
+      <div class="fd-actions">
+        <button class="btn" id="fdSelectAll">All</button>
+        <button class="btn" id="fdSelectNone">None</button>
+        <button class="btn btn-accent" id="fdApply">Apply</button>
+      </div>
+    `;
+
+    // position
+    const rect = anchorEl.getBoundingClientRect();
+    $filterDD.style.top = rect.bottom + 6 + 'px';
+    $filterDD.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+    $filterDD.classList.remove('hidden');
+
+    // events
+    const $fdSearch = document.getElementById('fdSearch');
+    const $fdList   = document.getElementById('fdList');
+    $fdSearch.focus();
+    $fdSearch.addEventListener('input', () => { $fdList.innerHTML = renderList($fdSearch.value); bindChecks(); });
+
+    function bindChecks() {
+      $fdList.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('change', () => {
+          if (inp.checked) selected.add(inp.value);
+          else selected.delete(inp.value);
+        });
+      });
+    }
+    bindChecks();
+
+    document.getElementById('fdSelectAll').addEventListener('click', () => {
+      entries.forEach(([v]) => selected.add(v));
+      $fdList.innerHTML = renderList($fdSearch.value);
+      bindChecks();
+    });
+    document.getElementById('fdSelectNone').addEventListener('click', () => {
+      selected.clear();
+      $fdList.innerHTML = renderList($fdSearch.value);
+      bindChecks();
+    });
+    document.getElementById('fdApply').addEventListener('click', () => {
+      if (selected.size && selected.size < entries.length) {
+        filters[colKey] = new Set(selected);
+      } else {
+        delete filters[colKey];
+      }
+      closeFilterDropdown();
+      renderAll();
+    });
+  }
+
+  function closeFilterDropdown() {
+    $filterDD.classList.add('hidden');
+    openFilterCol = null;
+  }
+
+  // close dropdown on outside click
+  document.addEventListener('click', e => {
+    if (!$filterDD.classList.contains('hidden') && !$filterDD.contains(e.target) && !e.target.classList.contains('filter-btn')) {
+      closeFilterDropdown();
+    }
+  });
+
+  // ── Detail Modal ────────────────────────────────
+  function showModal(row) {
+    if (!row) return;
+    $modalTitle.textContent = row.cells.eventName + ' — ' + row.cells.eventTime;
+    $modalBody.innerHTML = syntaxHighlight(JSON.stringify(row.raw, null, 2));
+    $modalOverlay.classList.add('open');
+  }
+
+  function closeModal() { $modalOverlay.classList.remove('open'); }
+  $modalClose.addEventListener('click', closeModal);
+  $modalOverlay.addEventListener('click', e => { if (e.target === $modalOverlay) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeFilterDropdown(); } });
+
+  function syntaxHighlight(json) {
+    return esc(json).replace(
+      /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")\s*:/g,
+      '<span class="key">$1</span>:'
+    ).replace(
+      /:\s*("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")/g,
+      ': <span class="string">$1</span>'
+    ).replace(
+      /:\s*(-?\d+\.?\d*([eE][+-]?\d+)?)/g,
+      ': <span class="number">$1</span>'
+    ).replace(
+      /:\s*(true|false)/g,
+      ': <span class="bool">$1</span>'
+    ).replace(
+      /:\s*(null)/g,
+      ': <span class="null">$1</span>'
+    );
+  }
+
+  // ── Toolbar Events ──────────────────────────────
+  $searchInput.addEventListener('input', () => { searchTerm = $searchInput.value; renderAll(); });
+  $btnColumns.addEventListener('click', () => {
+    $colPanel.classList.toggle('open');
+    $btnColumns.classList.toggle('active');
+  });
+  $btnClear.addEventListener('click', () => {
+    allRecords = []; rows = []; filteredRows = [];
+    filters = {}; searchTerm = ''; sortCol = 'eventTime'; sortAsc = false; currentPage = 1;
+    $searchInput.value = '';
+    $main.classList.add('hidden');
+    $dropzone.classList.remove('hidden');
+    $fileInput.value = '';
+    $colPanel.classList.remove('open');
+    $btnColumns.classList.remove('active');
+  });
+
+  // ── Helper ──────────────────────────────────────
+  function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+})();
+</script>
+</body>
+</html>
