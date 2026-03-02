@@ -38,7 +38,7 @@
 
 1. **Clone the repo**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/cloudtrail-viewer.git
+   git clone https://github.com/abdurrahman-cybersec/cloudtrail-viewer.git
    ```
 
 2. **Open the file**
